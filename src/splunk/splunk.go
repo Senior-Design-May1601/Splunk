@@ -1,4 +1,4 @@
-package main
+package splunk
 import ("net/http"
 		"fmt"
 		"io"
@@ -6,8 +6,9 @@ import ("net/http"
 		"bytes"
 		"crypto/tls"
 		"encoding/json"
-		"time"
 		"os"
+		"time"
+		"bufio"
 )
 
 const(
@@ -40,10 +41,6 @@ type Event struct{
 	Https *Https `json:"https,omitempty"`
 }
 
-// Throw error if exception found
-func getDependecies(){
-		
-}
 
 // HttpClient with TLS 
 func httpClient() *http.Client{
@@ -55,23 +52,49 @@ func httpClient() *http.Client{
 }
 
 // Do five attempts, one every 5 seconds. If it still fails write to file
-func cacheEvent(client *http.Client,request *http.Request,data []byte)(*http.Response,error){
-	i:=0
-	var resp *http.Response
-	var err error
-	for(i<5){
-		time.Sleep(5 * time.Second)
-		resp, err = client.Do(request)
-		if(err == nil){
-			break
+func cacheEvent(client *http.Client,request *http.Request,data []byte){
+
+	f, err := os.OpenFile("cache.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	f.Write(data); 
+	f.WriteString("\n"); 
+	
+	
+	f.Close()
+	time.Sleep(5*time.Second)
+	retryCache()
+}
+func retryCache(){
+	f, err := os.OpenFile("cache.txt",os.O_RDONLY,0666)
+	if err != nil{
+		panic(err)
+	}
+	defer f.Close()
+	var line string
+	var write []string
+	scnr := bufio.NewScanner(f)
+	
+	for scnr.Scan(){
+		line = scnr.Text()
+		_,err:=request(line)
+		if err!=nil{
+			write = append(write,line)
+			write = append(write,"\n")
+			fmt.Println(write)
 		}
-		i++
 	}
-	if(err!=nil){
-		fp,_:= os.OpenFile("cache.txt",os.O_WRONLY|os.O_APPEND,0666)
-		fp.Write(data)
-	}
-	return resp,err
+	if len(write)==0{
+		fmt.Println("empty")
+		os.Remove("cache.txt")
+	}else{
+		f,err = os.OpenFile("cache.txt",os.O_WRONLY,0666)
+		for i:=0;i<len(write);i++{
+			f.Write([]byte(write[i]))
+		}
+	}	
 }
 /*
 * Usage example
@@ -101,4 +124,16 @@ func (e Event) Send() (string,error){
 		response,err:= ioutil.ReadAll(resp.Body)
 		return string(response),err
 	}
+}
+func request(e string) (*http.Response,error){
+	client := httpClient()
+	var payload io.Reader
+    data:= map[string] string{"event":e}  
+	json_data,err := json.Marshal(data)
+	payload = bytes.NewReader(json_data)
+	request, err:= http.NewRequest("POST", EVENT, payload)
+	request.Header.Add("Authorization", fmt.Sprintf("Splunk %s", TOKEN))
+	resp,err:=client.Do(request)
+	
+	return resp, err
 }
