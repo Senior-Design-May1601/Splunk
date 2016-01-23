@@ -9,6 +9,7 @@ import ("net/http"
 		"os"
 		"time"
 		"bufio"
+		"github.com/Senior-Design-May1601/projectmain/loggerplugin"
 )
 
 const(
@@ -52,50 +53,7 @@ func httpClient() *http.Client{
 }
 
 // Do five attempts, one every 5 seconds. If it still fails write to file
-func cacheEvent(client *http.Client,request *http.Request,data []byte){
 
-	f, err := os.OpenFile("cache.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	f.Write(data); 
-	f.WriteString("\n"); 
-	
-	
-	f.Close()
-	time.Sleep(5*time.Second)
-	retryCache()
-}
-func retryCache(){
-	f, err := os.OpenFile("cache.txt",os.O_RDONLY,0666)
-	if err != nil{
-		panic(err)
-	}
-	defer f.Close()
-	var line string
-	var write []string
-	scnr := bufio.NewScanner(f)
-	
-	for scnr.Scan(){
-		line = scnr.Text()
-		_,err:=request(line)
-		if err!=nil{
-			write = append(write,line)
-			write = append(write,"\n")
-			fmt.Println(write)
-		}
-	}
-	if len(write)==0{
-		fmt.Println("empty")
-		os.Remove("cache.txt")
-	}else{
-		f,err = os.OpenFile("cache.txt",os.O_WRONLY,0666)
-		for i:=0;i<len(write);i++{
-			f.Write([]byte(write[i]))
-		}
-	}	
-}
 /*
 * Usage example
 *	m := map[string]string{"username":"user","password":"pass"}
@@ -107,7 +65,7 @@ func retryCache(){
 func (e Event) Send() (string,error){
 	client := httpClient()
 	var payload io.Reader
-    data:= map[string] Event{"event":e}  
+    	data:= map[string] Event{"event":e}  
 	json_data,err := json.Marshal(data)
 	
 	//os.Stdout.Write(json_data)
@@ -125,15 +83,4 @@ func (e Event) Send() (string,error){
 		return string(response),err
 	}
 }
-func request(e string) (*http.Response,error){
-	client := httpClient()
-	var payload io.Reader
-    data:= map[string] string{"event":e}  
-	json_data,err := json.Marshal(data)
-	payload = bytes.NewReader(json_data)
-	request, err:= http.NewRequest("POST", EVENT, payload)
-	request.Header.Add("Authorization", fmt.Sprintf("Splunk %s", TOKEN))
-	resp,err:=client.Do(request)
-	
-	return resp, err
-}
+
