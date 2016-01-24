@@ -1,7 +1,6 @@
 package main
 import(
 //	"github.com/Senior-Design-May1601/projectmain/loggerplugin"
-//	"log"
 	"bytes"
 	"net/http"
 	"fmt"
@@ -9,6 +8,9 @@ import(
 	"crypto/tls"
 	"github.com/BurntSushi/toml"
 	"log"
+	"errors"
+	"os"
+	"time"
 )
 
 type SplunkPlugin struct{
@@ -22,6 +24,11 @@ type Event struct{
 type SplunkConfig struct{
 	Token string
 	Url  string
+}
+
+type Cache struct{
+	Time time.Time
+	Event []byte
 }
 
 func (s *SplunkPlugin)EncodeMSG(msg string, _*int) error{
@@ -48,17 +55,47 @@ func (s *SplunkPlugin) Log(msg []byte, _*int) error{
 	resp, err :=client.Do(req)
 
 	if err != nil{
-		fmt.Println(err)
-	}else{
-		fmt.Println(resp)
+		log.Fatal(err)
 	}
+	if resp.StatusCode != 200{
+		return errors.New(resp.Status)
+	}
+
 	return nil
 }
 
+func CacheEvent(msg []byte) {
+	f, err := os.OpenFile("requests.toml",os.O_APPEND|os.O_WRONLY,0600)
+	if err != nil{
+		log.Fatal(err)
+	}
+	defer f.Close()
+	
+	m := Cache{Time: time.Now().UTC(),Event:msg}
+	c := make(map[string]Cache)
+	c["0"] = m
+	encoder := toml.NewEncoder(f)
+	if err := encoder.Encode(c); err != nil{
+		log.Fatal(err)
+	}	
+}
+
+func ReadCache() []Cache{
+	var events []Cache
+	if _,err :=toml.DecodeFile("requests.toml",&events); err != nil{
+		log.Fatal(err)
+	}
+	return events
+}
+
 func main(){
+	var config SplunkConfig
+	if _, err := toml.DecodeFile("config.toml",&config); err != nil {
+		log.Fatal(err)
+	}
 /*	p, err := loggerplugin.NewLoggerPlugin(&SplunkPlugin{
-								Token: "1280B3F3-3AEC-49B5-861D-49E745BFB827",
-								Url : "https://localhost:8088/services/collector",
+								Token: config.Token,
+								Url : config.Url,
 								})
 
 	if err != nil {
@@ -68,12 +105,11 @@ func main(){
 	if err != nil{
 		log.Fatal(err)
 	}*/
-	var config SplunkConfig
-	if _, err := toml.DecodeFile("config.toml",&config); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(config.Token)
+
 	s := SplunkPlugin{Token:config.Token, Url :config.Url,}
 	var reply *int
 	s.EncodeMSG("Another Alert",reply)
+
+	data, _ := json.Marshal("hello")
+	CacheEvent(data)	
 }
