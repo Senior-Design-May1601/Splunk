@@ -29,7 +29,9 @@ func (s *SplunkPlugin) Log(msg []byte, _*int) error{
         var t SplunkAlert
         var g GenericAlert
         if err := json.Unmarshal(msg,&t); err != nil{
-                json.Unmarshal(msg,&g.Event)
+               	if err := json.Unmarshal(msg,&g.Event); err != nil{
+			g.Event=string(msg)	
+		}
                 msg,err = json.Marshal(g)
                 if err != nil {
 			log.Fatal(err)
