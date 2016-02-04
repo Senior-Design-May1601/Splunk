@@ -4,92 +4,75 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 
-	"github.com/BurntSushi/toml"
+	"github.com/Senior-Design-May1601/Splunk/alert"
 	"github.com/Senior-Design-May1601/projectmain/loggerplugin"
 )
 
-type splunkConfig struct {
-	Token string
-	Url   string
-}
-
 type SplunkPlugin struct {
-	SplunkConfig []splunkConfig
-	Client       *http.Client
+	Client *http.Client
+	Token  string
+	Url    string
 }
 
-type SplunkAlert struct {
-	Service string            `json:"source"`
-	Meta    map[string]string `json:"event"`
-}
 type GenericAlert struct {
-	Event interface{} `json:"event"`
+	Event []byte `json:"event"`
 }
 
 func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
-	var t SplunkAlert
-	var g GenericAlert
-	if err := json.Unmarshal(msg, &t); err != nil {
-		if err := json.Unmarshal(msg, &g.Event); err != nil {
-			g.Event = string(msg)
-		}
-		msg, err = json.Marshal(g)
-		if err != nil {
-			return err
-		}
-	}
-	request, err := http.NewRequest("POST", s.SplunkConfig[0].Url, bytes.NewBuffer(msg))
-	if err != nil {
-		return err
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Splunk %s", s.SplunkConfig[0].Token))
-	resp, err := s.Client.Do(request)
+	var logMsg []byte
+	var splunkAlert alert.Message
 
+	// check if we got a well formed splunk alert. if not, build a generic alert
+	err := json.Unmarshal(msg, &splunkAlert)
 	if err != nil {
-		return err
+		// didn't get a splunk alert. just pack into a generic alert
+		logMsg, err = json.Marshal(GenericAlert{msg})
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		logMsg, err = json.Marshal(splunkAlert)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	req, err := http.NewRequest("POST", s.Url, bytes.NewBuffer(logMsg))
+	if err != nil {
+		log.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Splunk %s", s.Token))
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	if resp.StatusCode != 200 {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return errors.New(string(body))
+		log.Fatal(string(body))
 	}
 
 	return nil
 }
 
-func NewAlert() *SplunkAlert {
-	return &SplunkAlert{}
-}
+var client *http.Client
 
 func main() {
-
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig:    &tls.Config{},
+		DisableCompression: true,
 	}
 
-	client := &http.Client{Transport: tr}
-	plugin := SplunkPlugin{Client: client}
-	if _, err := toml.DecodeFile("dev-config.toml", &plugin); err != nil {
-		log.Fatal(err)
-	}
-	f, err := os.Create("logfile")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
+	client = &http.Client{Transport: tr}
+	plugin := &SplunkPlugin{Client: client}
 
-	for _, s := range plugin.SplunkConfig {
-		f.WriteString(s.Token)
-	}
-
-	p, err := loggerplugin.NewLoggerPlugin(&plugin)
+	p, err := loggerplugin.NewLoggerPlugin(plugin)
 	if err != nil {
 		log.Fatal(err)
 	}
