@@ -3,3 +3,4 @@ Host = "localhost"
 Port = 8088
 URL = "/services/collector"
 AuthToken = "12345"
+RootCAs = ["/path/to/ca/cert.pem"]

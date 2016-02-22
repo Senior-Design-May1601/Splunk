@@ -3,28 +3,30 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
-    "flag"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-    "strconv"
+	"strconv"
 
-    "github.com/BurntSushi/toml"
+	"github.com/BurntSushi/toml"
 	"github.com/Senior-Design-May1601/Splunk/alert"
 	"github.com/Senior-Design-May1601/projectmain/loggerplugin"
 )
 
 type Config struct {
-    Endpoint []endpoint
+	Endpoint []endpoint
 }
 
 type endpoint struct {
-    Host string
-    Port int
-    URL string
-    AuthToken string
+	Host      string
+	Port      int
+	URL       string
+	AuthToken string
+	RootCAs   []string
 }
 
 type SplunkPlugin struct {
@@ -42,7 +44,7 @@ func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
 	var splunkAlert alert.Message
 
 	// check if we got a well formed splunk alert.
-    // if not, build a generic alert
+	// if not, build a generic alert
 	err := json.Unmarshal(msg, &splunkAlert)
 	if err != nil {
 		// didn't get a splunk alert. just pack into a generic alert
@@ -79,26 +81,44 @@ func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
 var client *http.Client
 
 func main() {
-    configPath := flag.String("config", "", "config file")
-    flag.Parse()
+	configPath := flag.String("config", "", "config file")
+	flag.Parse()
 
-    var configs Config
-    if _, err := toml.DecodeFile(*configPath, &configs); err != nil {
-        log.Fatal(err)
-    }
-    // TODO: consider supporting multiple endpoints. for now just always
-    //       use the first one
-    config := configs.Endpoint[0]
+	var configs Config
+	if _, err := toml.DecodeFile(*configPath, &configs); err != nil {
+		log.Fatal(err)
+	}
+	// TODO: consider supporting multiple endpoints. for now just always
+	//       use the first one
+	config := configs.Endpoint[0]
+
+	var roots *x509.CertPool
+
+	roots = nil
+
+	if len(config.RootCAs) > 0 {
+		roots = x509.NewCertPool()
+		for _, CA := range config.RootCAs {
+			pem, err := ioutil.ReadFile(CA)
+			if err != nil {
+				log.Fatal(err)
+			}
+			ok := roots.AppendCertsFromPEM(pem)
+			if !ok {
+				log.Fatal("failed to parse CA certificate")
+			}
+		}
+	}
 
 	tr := &http.Transport{
-		TLSClientConfig:    &tls.Config{},
+		TLSClientConfig:    &tls.Config{RootCAs: roots},
 		DisableCompression: true,
 	}
 
 	client = &http.Client{Transport: tr}
 	plugin := &SplunkPlugin{Client: client,
-        Token: config.AuthToken,
-        Url: "https://" + config.Host + ":" + strconv.Itoa(config.Port) + config.URL}
+		Token: config.AuthToken,
+		Url:   "https://" + config.Host + ":" + strconv.Itoa(config.Port) + config.URL}
 
 	p, err := loggerplugin.NewLoggerPlugin(plugin)
 	if err != nil {
