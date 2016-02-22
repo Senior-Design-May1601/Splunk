@@ -4,14 +4,28 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+    "flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+    "strconv"
 
+    "github.com/BurntSushi/toml"
 	"github.com/Senior-Design-May1601/Splunk/alert"
 	"github.com/Senior-Design-May1601/projectmain/loggerplugin"
 )
+
+type Config struct {
+    Endpoint []endpoint
+}
+
+type endpoint struct {
+    Host string
+    Port int
+    URL string
+    AuthToken string
+}
 
 type SplunkPlugin struct {
 	Client *http.Client
@@ -27,7 +41,8 @@ func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
 	var logMsg []byte
 	var splunkAlert alert.Message
 
-	// check if we got a well formed splunk alert. if not, build a generic alert
+	// check if we got a well formed splunk alert.
+    // if not, build a generic alert
 	err := json.Unmarshal(msg, &splunkAlert)
 	if err != nil {
 		// didn't get a splunk alert. just pack into a generic alert
@@ -64,13 +79,26 @@ func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
 var client *http.Client
 
 func main() {
+    configPath := flag.String("config", "", "config file")
+    flag.Parse()
+
+    var configs Config
+    if _, err := toml.DecodeFile(*configPath, &configs); err != nil {
+        log.Fatal(err)
+    }
+    // TODO: consider supporting multiple endpoints. for now just always
+    //       use the first one
+    config := configs.Endpoint[0]
+
 	tr := &http.Transport{
 		TLSClientConfig:    &tls.Config{},
 		DisableCompression: true,
 	}
 
 	client = &http.Client{Transport: tr}
-	plugin := &SplunkPlugin{Client: client}
+	plugin := &SplunkPlugin{Client: client,
+        Token: config.AuthToken,
+        Url: "https://" + config.Host + ":" + strconv.Itoa(config.Port) + config.URL}
 
 	p, err := loggerplugin.NewLoggerPlugin(plugin)
 	if err != nil {
