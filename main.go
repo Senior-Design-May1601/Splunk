@@ -35,31 +35,23 @@ type SplunkPlugin struct {
 	Url    string
 }
 
-type GenericAlert struct {
-	Event string `json:"event"`
-}
-
 func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
-	var logMsg []byte
-	var splunkAlert alert.Message
-
+	var splunkAlert alert.Alert
 	// check if we got a well formed splunk alert.
-	// if not, build a generic alert
+	// if not, build one
 	err := json.Unmarshal(msg, &splunkAlert)
 	if err != nil {
-		// didn't get a splunk alert. just pack into a generic alert
-		logMsg, err = json.Marshal(GenericAlert{string(msg)})
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		logMsg, err = json.Marshal(splunkAlert)
+		m := make(map[string]string)
+		m["alert"] = string(msg)
+		// didn't get a splunk alert. create one.
+		msg, err = json.Marshal(alert.Alert{Source: "projectmain",
+			Event: m})
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	req, err := http.NewRequest("POST", s.Url, bytes.NewBuffer(logMsg))
+	req, err := http.NewRequest("POST", s.Url, bytes.NewBuffer(msg))
 	if err != nil {
 		log.Fatal(err)
 	}
