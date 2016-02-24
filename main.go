@@ -43,14 +43,12 @@ func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
 	var logMsg []byte
 	var splunkAlert alert.Message
 
-
 	// check if we got a well formed splunk alert.
 	// if not, build a generic alert
 	err := json.Unmarshal(msg, &splunkAlert)
 	if err != nil {
 		// didn't get a splunk alert. just pack into a generic alert
-		str:= string(msg)
-		logMsg, err = json.Marshal(GenericAlert{Event:str})
+		logMsg, err = json.Marshal(GenericAlert{string(msg)})
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -74,7 +72,7 @@ func (s *SplunkPlugin) Log(msg []byte, _ *int) error {
 
 	if resp.StatusCode != 200 {
 		body, _ := ioutil.ReadAll(resp.Body)
-		log.Fatal(string(body),resp.StatusCode)
+		log.Fatal(string(body), resp.StatusCode)
 	}
 
 	return nil
